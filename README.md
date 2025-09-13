@@ -2,7 +2,7 @@
 Ukraine online source for Lampac
 
 
-- [ ] AnimeON
+- [x] AnimeON
 - [ ] AnimeUA
 - [ ] Anitubeinua
 - [ ] BambooUA
