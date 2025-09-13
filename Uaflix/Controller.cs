@@ -159,12 +159,9 @@ namespace Uaflix.Controllers
 
                         // First try to find with year
                         string selectedFilmUrl = null;
+                        HtmlNode selectedFilmNode = null;
                         foreach (var filmNode in filmNodes)
                         {
-                            string href = filmNode.GetAttributeValue("href", "");
-                            if (!href.StartsWith("http"))
-                                href = "https://uafix.net" + href;
-
                             var h2Node = filmNode.SelectSingleNode(".//h2");
                             if (h2Node == null) continue;
 
@@ -175,30 +172,81 @@ namespace Uaflix.Controllers
                             string desc = (descNode?.InnerText ?? "") + " " + nodeTitle;
                             if (year > 0 && desc.Contains(year.ToString()))
                             {
-                                selectedFilmUrl = href;
-                                OnLog($"Selected film URL with year: {selectedFilmUrl} for title '{filmTitle}' year {year}");
+                                selectedFilmUrl = filmNode.GetAttributeValue("href", "");
+                                selectedFilmNode = filmNode;
+                                OnLog($"Selected film URL with year in description: {selectedFilmUrl} for title '{filmTitle}' year {year}");
                                 break;
                             }
                         }
 
-                        // If no match with year, pick first title match
+                        // If no match with year in description, check year on film page or pick first title match
                         if (string.IsNullOrEmpty(selectedFilmUrl))
                         {
                             foreach (var filmNode in filmNodes)
                             {
-                                string href = filmNode.GetAttributeValue("href", "");
-                                if (!href.StartsWith("http"))
-                                    href = "https://uafix.net" + href;
-
                                 var h2Node = filmNode.SelectSingleNode(".//h2");
                                 if (h2Node == null) continue;
 
                                 string nodeTitle = h2Node.InnerText.Trim().ToLower();
-                                if (nodeTitle.Contains(filmTitle.ToLower()))
+                                if (!nodeTitle.Contains(filmTitle.ToLower())) continue;
+
+                                string href = filmNode.GetAttributeValue("href", "");
+                                if (!href.StartsWith("http"))
+                                    href = "https://uafix.net" + href;
+
+                                // Get film page and check year
+                                try
                                 {
-                                    selectedFilmUrl = href;
-                                    OnLog($"Selected first matching film URL: {selectedFilmUrl} for title '{filmTitle}' (year not found in desc)");
-                                    break;
+                                    var filmPageHtml = await httpClient.GetStringAsync(href);
+                                    var filmDoc = new HtmlDocument();
+                                    filmDoc.LoadHtml(filmPageHtml);
+
+                                    var yearNode = filmDoc.DocumentNode.SelectSingleNode("//span[@itemprop='dateCreated' and @class='year']");
+                                    int filmYear = 0;
+                                    if (yearNode != null)
+                                    {
+                                        if (int.TryParse(yearNode.InnerText, out int parsedYear))
+                                        {
+                                            filmYear = parsedYear;
+                                        }
+                                    }
+
+                                    if (year == 0 || filmYear == 0 || filmYear == year)
+                                    {
+                                        selectedFilmUrl = href;
+                                        selectedFilmNode = filmNode;
+                                        OnLog($"Selected film URL with year from page: {selectedFilmUrl} for title '{filmTitle}' year {year} (page year: {filmYear})");
+                                        break;
+                                    }
+                                    else
+                                    {
+                                        OnLog($"Film year mismatch: requested {year}, page {filmYear}. Skipping film.");
+                                    }
+                                }
+                                catch (Exception ex)
+                                {
+                                    OnLog($"Error fetching film page {href}: {ex.Message}. Trying next film.");
+                                    // If error fetching page, try next film
+                                    continue;
+                                }
+                            }
+
+                            // If still no match, pick first title match
+                            if (string.IsNullOrEmpty(selectedFilmUrl))
+                            {
+                                foreach (var filmNode in filmNodes)
+                                {
+                                    var h2Node = filmNode.SelectSingleNode(".//h2");
+                                    if (h2Node == null) continue;
+
+                                    string nodeTitle = h2Node.InnerText.Trim().ToLower();
+                                    if (nodeTitle.Contains(filmTitle.ToLower()))
+                                    {
+                                        selectedFilmUrl = filmNode.GetAttributeValue("href", "");
+                                        selectedFilmNode = filmNode;
+                                        OnLog($"Selected first matching film URL: {selectedFilmUrl} for title '{filmTitle}' (no year match)");
+                                        break;
+                                    }
                                 }
                             }
                         }
