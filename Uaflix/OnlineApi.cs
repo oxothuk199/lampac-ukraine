@@ -9,19 +9,15 @@ namespace Uaflix
         {
             var online = new List<(string name, string url, string plugin, int index)>();
 
-            void send(BaseSettings init, string plugin)
+            var init = ModInit.UaFlix;
+            if (init.enable && !init.rip)
             {
-                if (init.enable && !init.rip)
-                {
-                    string url = init.overridehost;
-                    if (string.IsNullOrEmpty(url))
-                        url = $"{host}/{plugin}";
+                string url = init.overridehost;
+                if (string.IsNullOrEmpty(url))
+                    url = $"{host}/uaflix";
 
-                    online.Add((init.displayname, url, plugin, online.Count));
-                }
+                online.Add((init.displayname, url, "uaflix", init.displayindex > 0 ? init.displayindex : online.Count));
             }
-
-            send(ModInit.UaFlix, "uaflix");
 
             return online;
         }

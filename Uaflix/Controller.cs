@@ -11,26 +11,32 @@ using Shared;
 using Shared.Models.Templates;
 using Uaflix.Models;
 using System.Text.RegularExpressions;
- 
+using Shared.Models.Online.Settings;
+using Shared.Engine;
+using Shared.Models;
+
 namespace Uaflix.Controllers
 {
     public class Controller : BaseOnlineController
     {
-        ProxyManager proxyManager = new ProxyManager(ModInit.UaFlix);
-        static HttpClient httpClient = new HttpClient();
+        ProxyManager proxyManager;
 
+        public Controller()
+        {
+            proxyManager = new ProxyManager(ModInit.UaFlix);
+        }
+        
         [HttpGet]
         [Route("uaflix")]
         async public Task<ActionResult> Index(long id, string imdb_id, long kinopoisk_id, string title, string original_title, string original_language, int year, string source, int serial, string account_email, string t, int s = -1, bool rjson = false)
         {
-            var init = ModInit.UaFlix;
+            var init = await loadKit(ModInit.UaFlix);
             if (!init.enable)
                 return Forbid();
 
-            var proxy = proxyManager.Get();
-            var result = await search(imdb_id, kinopoisk_id, title, original_title, year, serial);
+            var result = await search(init, imdb_id, kinopoisk_id, title, original_title, year, serial, s);
 
-            if (result == null)
+            if (result == null || result.movie == null)
             {
                 proxyManager.Refresh();
                 return Content("Uaflix", "text/html; charset=utf-8");
@@ -57,7 +63,7 @@ namespace Uaflix.Controllers
                     return rjson ? Content(season_tpl.ToJson(), "application/json; charset=utf-8") : Content(season_tpl.ToHtml(), "text/html; charset=utf-8");
                 }
 
-                var episodes = seasons.GetValueOrDefault(s, null);
+                var episodes = seasons.GetValueOrDefault<int, List<Movie>>(s, null);
                 OnLog($"Вибраний сезон: {s}, кількість епізодів: {episodes?.Count ?? 0}");
                 if (episodes == null)
                     return Content("Uaflix", "text/html; charset=utf-8");
@@ -118,48 +124,74 @@ namespace Uaflix.Controllers
             return Content("Uaflix", "text/html; charset=utf-8");
         }
 
-        async ValueTask<Result> search(string imdb_id, long kinopoisk_id, string title, string original_title, int year, int serial)
+        async ValueTask<Result> search(OnlinesSettings init, string imdb_id, long kinopoisk_id, string title, string original_title, int year, int serial, int s = -1)
         {
-            string memKey = $"UaFlix:view:{kinopoisk_id}:{imdb_id}";
+            string memKey = $"UaFlix:view:{kinopoisk_id}:{imdb_id}:{s}";
             if (!hybridCache.TryGetValue(memKey, out Result res))
             {
                 try
                 {
-                    string filmTitle = !string.IsNullOrEmpty(title) ? title : original_title;
-                    string searchUrl = $"https://uafix.net/index.php?do=search&subaction=search&story={HttpUtility.UrlEncode(filmTitle)}";
+                var proxy = proxyManager.Get();
 
-                    httpClient.DefaultRequestHeaders.Clear();
-                    httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
-                    httpClient.DefaultRequestHeaders.Add("Referer", "https://uafix.net/");
+                string filmTitle = !string.IsNullOrEmpty(title) ? title : original_title;
+                string searchUrl = $"{init.host}/index.php?do=search&subaction=search&story={HttpUtility.UrlEncode(filmTitle)}";
 
-                    var searchHtml = await httpClient.GetStringAsync(searchUrl);
-                    var doc = new HtmlDocument();
-                    doc.LoadHtml(searchHtml);
+                var headers = new List<HeadersModel>()
+                {
+                    new HeadersModel("User-Agent", "Mozilla/5.0"),
+                    new HeadersModel("Referer", init.host)
+                };
 
-                    string filmUrl = null;
+                var searchHtml = await Http.Get(searchUrl, proxy: proxy, headers: headers);
+                var doc = new HtmlDocument();
+                doc.LoadHtml(searchHtml);
 
-                    if (serial == 1)
+                string filmUrl = null;
+
+                if (serial == 1)
+                {
+                    var filmNode = doc.DocumentNode.SelectSingleNode("//a[contains(@class, 'sres-wrap')]");
+                    if (filmNode == null)
                     {
-                        var filmNode = doc.DocumentNode.SelectSingleNode("//a[contains(@class, 'sres-wrap')]");
-                        if (filmNode == null)
-                        {
-                            OnLog("filmNode is null");
-                            return null;
-                        }
-                        filmUrl = filmNode.GetAttributeValue("href", "");
+                        OnLog("filmNode is null");
+                        return null;
                     }
-                    else
+                    filmUrl = filmNode.GetAttributeValue("href", "");
+                }
+                else
+                {
+                    var filmNodes = doc.DocumentNode.SelectNodes("//a[contains(@class, 'sres-wrap')]");
+                    if (filmNodes == null)
                     {
-                        var filmNodes = doc.DocumentNode.SelectNodes("//a[contains(@class, 'sres-wrap')]");
-                        if (filmNodes == null)
-                        {
-                            OnLog("No search results found");
-                            return null;
-                        }
+                        OnLog("No search results found");
+                        return null;
+                    }
 
-                        // First try to find with year
-                        string selectedFilmUrl = null;
-                        HtmlNode selectedFilmNode = null;
+                    // First try to find with year
+                    string selectedFilmUrl = null;
+                    HtmlNode selectedFilmNode = null;
+                    foreach (var filmNode in filmNodes)
+                    {
+                        var h2Node = filmNode.SelectSingleNode(".//h2");
+                        if (h2Node == null) continue;
+
+                        string nodeTitle = h2Node.InnerText.Trim().ToLower();
+                        if (!nodeTitle.Contains(filmTitle.ToLower())) continue;
+
+                        var descNode = filmNode.SelectSingleNode(".//div[contains(@class, 'sres-desc')]");
+                        string desc = (descNode?.InnerText ?? "") + " " + nodeTitle;
+                        if (year > 0 && desc.Contains(year.ToString()))
+                        {
+                            selectedFilmUrl = filmNode.GetAttributeValue("href", "");
+                            selectedFilmNode = filmNode;
+                            OnLog($"Selected film URL with year in description: {selectedFilmUrl} for title '{filmTitle}' year {year}");
+                            break;
+                        }
+                    }
+
+                    // If no match with year in description, check year on film page or pick first title match
+                    if (string.IsNullOrEmpty(selectedFilmUrl))
+                    {
                         foreach (var filmNode in filmNodes)
                         {
                             var h2Node = filmNode.SelectSingleNode(".//h2");
@@ -168,18 +200,48 @@ namespace Uaflix.Controllers
                             string nodeTitle = h2Node.InnerText.Trim().ToLower();
                             if (!nodeTitle.Contains(filmTitle.ToLower())) continue;
 
-                            var descNode = filmNode.SelectSingleNode(".//div[contains(@class, 'sres-desc')]");
-                            string desc = (descNode?.InnerText ?? "") + " " + nodeTitle;
-                            if (year > 0 && desc.Contains(year.ToString()))
+                            string href = filmNode.GetAttributeValue("href", "");
+                            if (!href.StartsWith("http"))
+                                href = init.host + href;
+
+                            // Get film page and check year
+                            try
                             {
-                                selectedFilmUrl = filmNode.GetAttributeValue("href", "");
-                                selectedFilmNode = filmNode;
-                                OnLog($"Selected film URL with year in description: {selectedFilmUrl} for title '{filmTitle}' year {year}");
-                                break;
+                                var filmPageHtml = await Http.Get(href, proxy: proxy, headers: headers);
+                                var filmDoc = new HtmlDocument();
+                                filmDoc.LoadHtml(filmPageHtml);
+
+                                var yearNode = filmDoc.DocumentNode.SelectSingleNode("//span[@itemprop='dateCreated' and @class='year']");
+                                int filmYear = 0;
+                                if (yearNode != null)
+                                {
+                                    if (int.TryParse(yearNode.InnerText, out int parsedYear))
+                                    {
+                                        filmYear = parsedYear;
+                                    }
+                                }
+
+                                if (year == 0 || filmYear == 0 || filmYear == year)
+                                {
+                                    selectedFilmUrl = href;
+                                    selectedFilmNode = filmNode;
+                                    OnLog($"Selected film URL with year from page: {selectedFilmUrl} for title '{filmTitle}' year {year} (page year: {filmYear})");
+                                    break;
+                                }
+                                else
+                                {
+                                    OnLog($"Film year mismatch: requested {year}, page {filmYear}. Skipping film.");
+                                }
+                            }
+                            catch (Exception ex)
+                            {
+                                OnLog($"Error fetching film page {href}: {ex.Message}. Trying next film.");
+                                // If error fetching page, try next film
+                                continue;
                             }
                         }
 
-                        // If no match with year in description, check year on film page or pick first title match
+                        // If still no match, pick first title match
                         if (string.IsNullOrEmpty(selectedFilmUrl))
                         {
                             foreach (var filmNode in filmNodes)
@@ -188,150 +250,105 @@ namespace Uaflix.Controllers
                                 if (h2Node == null) continue;
 
                                 string nodeTitle = h2Node.InnerText.Trim().ToLower();
-                                if (!nodeTitle.Contains(filmTitle.ToLower())) continue;
-
-                                string href = filmNode.GetAttributeValue("href", "");
-                                if (!href.StartsWith("http"))
-                                    href = "https://uafix.net" + href;
-
-                                // Get film page and check year
-                                try
+                                if (nodeTitle.Contains(filmTitle.ToLower()))
                                 {
-                                    var filmPageHtml = await httpClient.GetStringAsync(href);
-                                    var filmDoc = new HtmlDocument();
-                                    filmDoc.LoadHtml(filmPageHtml);
-
-                                    var yearNode = filmDoc.DocumentNode.SelectSingleNode("//span[@itemprop='dateCreated' and @class='year']");
-                                    int filmYear = 0;
-                                    if (yearNode != null)
-                                    {
-                                        if (int.TryParse(yearNode.InnerText, out int parsedYear))
-                                        {
-                                            filmYear = parsedYear;
-                                        }
-                                    }
-
-                                    if (year == 0 || filmYear == 0 || filmYear == year)
-                                    {
-                                        selectedFilmUrl = href;
-                                        selectedFilmNode = filmNode;
-                                        OnLog($"Selected film URL with year from page: {selectedFilmUrl} for title '{filmTitle}' year {year} (page year: {filmYear})");
-                                        break;
-                                    }
-                                    else
-                                    {
-                                        OnLog($"Film year mismatch: requested {year}, page {filmYear}. Skipping film.");
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    OnLog($"Error fetching film page {href}: {ex.Message}. Trying next film.");
-                                    // If error fetching page, try next film
-                                    continue;
-                                }
-                            }
-
-                            // If still no match, pick first title match
-                            if (string.IsNullOrEmpty(selectedFilmUrl))
-                            {
-                                foreach (var filmNode in filmNodes)
-                                {
-                                    var h2Node = filmNode.SelectSingleNode(".//h2");
-                                    if (h2Node == null) continue;
-
-                                    string nodeTitle = h2Node.InnerText.Trim().ToLower();
-                                    if (nodeTitle.Contains(filmTitle.ToLower()))
-                                    {
-                                        selectedFilmUrl = filmNode.GetAttributeValue("href", "");
-                                        selectedFilmNode = filmNode;
-                                        OnLog($"Selected first matching film URL: {selectedFilmUrl} for title '{filmTitle}' (no year match)");
-                                        break;
-                                    }
+                                    selectedFilmUrl = filmNode.GetAttributeValue("href", "");
+                                    selectedFilmNode = filmNode;
+                                    OnLog($"Selected first matching film URL: {selectedFilmUrl} for title '{filmTitle}' (no year match)");
+                                    break;
                                 }
                             }
                         }
-
-                        if (string.IsNullOrEmpty(selectedFilmUrl))
-                        {
-                            OnLog($"No matching film found for '{filmTitle}'");
-                            return null;
-                        }
-
-                        filmUrl = selectedFilmUrl;
                     }
 
-                    if (!filmUrl.StartsWith("http"))
-                        filmUrl = "https://uafix.net" + filmUrl;
-
-                    var filmHtml = await httpClient.GetStringAsync(filmUrl);
-                    doc.LoadHtml(filmHtml);
-
-                    var movies = new List<Movie>();
-
-                    if (serial == 1)
+                    if (string.IsNullOrEmpty(selectedFilmUrl))
                     {
-                        var episodeNodes = doc.DocumentNode.SelectNodes("//div[contains(@class, 'frels2')]//a[contains(@class, 'vi-img')]");
-                        if (episodeNodes != null)
-                        {
-                            OnLog($"Знайдено {episodeNodes.Count} епізодів");
-                            var uniqueEpisodes = new HashSet<string>();
-                            foreach (var episodeNode in episodeNodes.Reverse())
-                            {
-                                string episodeUrl = episodeNode.GetAttributeValue("href", "");
-                                if (!episodeUrl.StartsWith("http"))
-                                    episodeUrl = "https://uafix.net" + episodeUrl;
+                        OnLog($"No matching film found for '{filmTitle}'");
+                        return null;
+                    }
 
-                                if (uniqueEpisodes.Add(episodeUrl))
+                    filmUrl = selectedFilmUrl;
+                }
+
+                if (!filmUrl.StartsWith("http"))
+                    filmUrl = init.host + filmUrl;
+
+                var filmHtml = await Http.Get(filmUrl, proxy: proxy, headers: headers);
+                doc.LoadHtml(filmHtml);
+
+                var movies = new List<Movie>();
+
+                if (serial == 1)
+                {
+                    var episodeNodes = doc.DocumentNode.SelectNodes("//div[contains(@class, 'frels2')]//a[contains(@class, 'vi-img')]");
+                    if (episodeNodes != null)
+                    {
+                        OnLog($"Знайдено {episodeNodes.Count} епізодів");
+                        var uniqueEpisodes = new HashSet<string>();
+                        foreach (var episodeNode in episodeNodes.Reverse())
+                        {
+                            string episodeUrl = episodeNode.GetAttributeValue("href", "");
+                            if (!episodeUrl.StartsWith("http"))
+                                episodeUrl = init.host + episodeUrl;
+
+                            if (uniqueEpisodes.Add(episodeUrl))
+                            {
+                                string episodeTitle = episodeNode.SelectSingleNode(".//div[@class='vi-rate']")?.InnerText.Trim();
+                                
+                                var match = System.Text.RegularExpressions.Regex.Match(episodeUrl, @"season-(\d+).*?episode-(\d+)");
+                                if (match.Success && match.Groups.Count > 2)
                                 {
-                                    string episodeTitle = episodeNode.SelectSingleNode(".//div[@class='vi-rate']")?.InnerText.Trim();
-                                    
-                                    var match = System.Text.RegularExpressions.Regex.Match(episodeUrl, @"season-(\d+).*?episode-(\d+)");
-                                    if (match.Success && match.Groups.Count > 2)
+                                    if (int.TryParse(match.Groups[1].Value, out int seasonNumber) && int.TryParse(match.Groups[2].Value, out int episodeNumber))
                                     {
-                                        if (int.TryParse(match.Groups[1].Value, out int seasonNumber) && int.TryParse(match.Groups[2].Value, out int episodeNumber))
+                                        var episodeMovies = await ParseEpisode(init, episodeUrl, filmTitle, episodeTitle, seasonNumber, episodeNumber);
+                                        if (episodeMovies != null)
                                         {
-                                            var episodeMovies = await ParseEpisode(episodeUrl, filmTitle, episodeTitle, seasonNumber, episodeNumber);
-                                            if (episodeMovies != null)
-                                            {
-                                                movies.AddRange(episodeMovies);
-                                            }
+                                            movies.AddRange(episodeMovies);
                                         }
                                     }
                                 }
                             }
                         }
-                    }
-                    else
-                    {
-                        var episodeMovies = await ParseEpisode(filmUrl, filmTitle, null, 1, 1);
-                        if (episodeMovies != null)
-                            movies.AddRange(episodeMovies);
-                    }
-
-                    if (movies.Count > 0)
-                    {
-                        res = new Result()
-                        {
-                            movie = movies
-                        };
-                        hybridCache.Set(memKey, res, cacheTime(5));
-                        proxyManager.Success();
                     }
                 }
-                catch (Exception ex)
+                else
                 {
-                    OnLog($"UaFlix error: {ex.Message}");
+                    var episodeMovies = await ParseEpisode(init, filmUrl, filmTitle, null, 1, 1);
+                    if (episodeMovies != null)
+                        movies.AddRange(episodeMovies);
+                }
+
+                if (movies.Count > 0)
+                {
+                    res = new Result()
+                    {
+                        movie = movies
+                    };
+                    hybridCache.Set(memKey, res, cacheTime(5));
+                    proxyManager.Success();
                 }
             }
-            return res;
+            catch (Exception ex)
+            {
+                OnLog($"UaFlix error: {ex.Message}");
+            }
         }
+        return res;
+    }
 
-        async Task<List<Movie>> ParseEpisode(string url, string filmTitle, string episodeTitle = null, int seasonNumber = 0, int episodeNumber = 0)
+        async Task<List<Movie>> ParseEpisode(OnlinesSettings init, string url, string filmTitle, string episodeTitle = null, int seasonNumber = 0, int episodeNumber = 0)
         {
             var movies = new List<Movie>();
             try
             {
-                string html = await httpClient.GetStringAsync(url);
+                var proxy = proxyManager.Get();
+                var headers = new List<HeadersModel>()
+                {
+                    new HeadersModel("User-Agent", "Mozilla/5.0"),
+                    new HeadersModel("Referer", init.host)
+                };
+
+                string html = await Http.Get(url, proxy: proxy, headers: headers);
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
 
@@ -403,10 +420,13 @@ namespace Uaflix.Controllers
             var result = new List<(string link, string quality)>();
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, iframeUrl);
-                request.Headers.Add("User-Agent", "Mozilla/5.0");
-                var response = await httpClient.SendAsync(request);
-                var html = await response.Content.ReadAsStringAsync();
+                var proxy = proxyManager.Get();
+                var headers = new List<HeadersModel>()
+                {
+                    new HeadersModel("User-Agent", "Mozilla/5.0"),
+                    new HeadersModel("Referer", "https://zetvideo.net/")
+                };
+                var html = await Http.Get(iframeUrl, proxy: proxy, headers: headers);
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
 
@@ -452,11 +472,14 @@ namespace Uaflix.Controllers
             var result = new List<(string link, string quality)>();
             try
             {
-                var request = new HttpRequestMessage(HttpMethod.Get, iframeUrl);
-                request.Headers.Add("User-Agent", "Mozilla/5.0");
-                request.Headers.Add("Referer", "https://ashdi.vip/");
-                var response = await httpClient.SendAsync(request);
-                var html = await response.Content.ReadAsStringAsync();
+                var proxy = proxyManager.Get();
+                var headers = new List<HeadersModel>()
+                {
+                    new HeadersModel("User-Agent", "Mozilla/5.0"),
+                    new HeadersModel("Referer", "https://ashdi.vip/")
+                };
+                
+                var html = await Http.Get(iframeUrl, proxy: proxy, headers: headers);
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
 
@@ -501,11 +524,16 @@ namespace Uaflix.Controllers
         {
             try
             {
+                var proxy = proxyManager.Get();
                 string url = $"https://ashdi.vip/vod/{id}";
-                httpClient.DefaultRequestHeaders.Clear();
-                httpClient.DefaultRequestHeaders.Add("User-Agent", "Mozilla/5.0");
-                httpClient.DefaultRequestHeaders.Add("Referer", "https://ashdi.vip/");
-                var html = await httpClient.GetStringAsync(url);
+                
+                var headers = new List<HeadersModel>()
+                {
+                    new HeadersModel("User-Agent", "Mozilla/5.0"),
+                    new HeadersModel("Referer", "https://ashdi.vip/")
+                };
+                
+                var html = await Http.Get(url, proxy: proxy, headers: headers);
 
                 string subtitle = new Regex("subtitle(\")?:\"([^\"]+)\"").Match(html).Groups[2].Value;
                 if (!string.IsNullOrEmpty(subtitle))
