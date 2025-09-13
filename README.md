@@ -26,7 +26,7 @@ Ukraine online source for Lampac
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/lampac-ukraine/lampac-ukraine.git
+   git clone https://github.com/lampac-ukraine/lampac-ukraine.git .
    ```
 
 2. Move the modules to the correct directory:
