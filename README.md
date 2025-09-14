@@ -4,20 +4,16 @@
 - [ ] AnimeUA
 - [ ] Anitubeinua
 - [ ] BambooUA
-- [ ] CikavaIdeya
+- [x] CikavaIdeya
 - [ ] Eneyida
 - [ ] KinoTron
 - [ ] KinoVezha
 - [ ] KlonTV
-- [ ] Serialno
-- [ ] Teleportal
 - [x] UAFlix
-- [ ] UASerial
-- [ ] UASerialsPro
 - [ ] UATuTFun
 - [ ] UFDub
 - [ ] Uakino
-- [ ] Unimay
+- [X] Unimay
 
 
 ## Installation
