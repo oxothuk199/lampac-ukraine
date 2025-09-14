@@ -1,6 +1,4 @@
-# lampac-ukraine
-Ukraine online source for Lampac
-
+# Ukraine online source for Lampac
 
 - [x] AnimeON
 - [ ] AnimeUA
