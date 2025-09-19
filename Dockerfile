@@ -1,5 +1,5 @@
 # Базуємось на готовому Lampac-образі
-FROM ghcr.io/immisterio/lampac:latest
+FROM ghcr.io/oxothuk199/lampac-ukraine:latest
 
 # Копіюємо українські модулі всередину контейнера
 COPY UAflix /home/module/UAflix
