@@ -1,10 +1,20 @@
-# Базуємось на готовому Lampac-образі
-FROM ghcr.io/oxothuk199/lampac-ukraine:latest
+# Використовуємо готовий образ Lampac
+FROM ghcr.io/immisterio/lampac:latest
 
-# Копіюємо українські модулі всередину контейнера
-COPY UAflix /home/module/UAflix
-COPY Unimay /home/module/Unimay
-COPY Cikavaldeya /home/module/Cikavaldeya
+# Встановлюємо робочу директорію
+WORKDIR /home
 
-# Порт, на якому працює Lampac
+# Копіюємо всі модулі з репозиторію в правильну директорію
+COPY . /home/module/
+
+# Встановлюємо правильні дозволи
+RUN chmod -R 755 /home/module/
+
+# Відкриваємо стандартний порт Lampac
 EXPOSE 9118
+
+# Встановлюємо змінні середовища
+ENV ASPNETCORE_URLS=http://+:9118
+
+# Використовуємо стандартну команду запуску Lampac
+ENTRYPOINT ["dotnet", "Lampac.dll"]
