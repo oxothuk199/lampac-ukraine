@@ -11,10 +11,10 @@ COPY . /home/module/
 RUN chmod -R 755 /home/module/
 
 # Відкриваємо стандартний порт Lampac
-EXPOSE 9118
+EXPOSE 80
 
 # Встановлюємо змінні середовища
-ENV ASPNETCORE_URLS=http://+:9118
+ENV ASPNETCORE_URLS=http://+:80
 
 # Використовуємо стандартну команду запуску Lampac
 ENTRYPOINT ["dotnet", "Lampac.dll"]
