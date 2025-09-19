@@ -1,5 +1,5 @@
 # Використовуємо готовий образ Lampac
-FROM ghcr.io/immisterio/lampac:latest
+FROM immisterio/lampac:latest
 
 # Встановлюємо робочу директорію
 WORKDIR /home
