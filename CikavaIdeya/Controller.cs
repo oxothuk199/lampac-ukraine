@@ -47,10 +47,19 @@ namespace CikavaIdeya.Controllers
                 if (episode == null)
                     return Content("CikavaIdeya", "text/html; charset=utf-8");
                 
+                OnLog($"Controller: calling invoke.ParseEpisode with URL: {episode.url}");
                 var playResult = await invoke.ParseEpisode(episode.url);
+                OnLog($"Controller: invoke.ParseEpisode returned playResult with streams.Count={playResult.streams?.Count ?? 0}, iframe_url={playResult.iframe_url}");
+                
+                if (playResult.streams != null && playResult.streams.Count > 0)
+                {
+                    OnLog($"Controller: redirecting to stream URL: {playResult.streams.First().link}");
+                    return Redirect(HostStreamProxy(init, accsArgs(playResult.streams.First().link)));
+                }
                 
                 if (!string.IsNullOrEmpty(playResult.iframe_url))
                 {
+                    OnLog($"Controller: redirecting to iframe URL: {playResult.iframe_url}");
                     // Для CikavaIdeya ми просто повертаємо iframe URL
                     return Redirect(playResult.iframe_url);
                 }

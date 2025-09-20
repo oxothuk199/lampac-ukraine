@@ -270,6 +270,17 @@ namespace CikavaIdeya
                 // Якщо це вже iframe URL (наприклад, з switches), повертаємо його
                 if (url.Contains("ashdi.vip"))
                 {
+                    _onLog($"ParseEpisode: URL contains ashdi.vip, calling GetStreamUrlFromAshdi");
+                    string streamUrl = await GetStreamUrlFromAshdi(url);
+                    _onLog($"ParseEpisode: GetStreamUrlFromAshdi returned {streamUrl}");
+                    if (!string.IsNullOrEmpty(streamUrl))
+                    {
+                        result.streams.Add((streamUrl, "hls"));
+                        _onLog($"ParseEpisode: added stream URL to result.streams");
+                        return result;
+                    }
+                    // Якщо не вдалося отримати посилання на поток, повертаємо iframe URL
+                    _onLog($"ParseEpisode: stream URL is null or empty, setting iframe_url");
                     result.iframe_url = url;
                     return result;
                 }
@@ -295,6 +306,45 @@ namespace CikavaIdeya
                 _onLog($"ParseEpisode error: {ex.Message}");
             }
             return result;
+        }
+        public async Task<string> GetStreamUrlFromAshdi(string url)
+        {
+            try
+            {
+                _onLog($"GetStreamUrlFromAshdi: trying to get stream URL from {url}");
+                var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://ashdi.vip/") };
+                string html = await Http.Get(url, headers: headers, proxy: _proxyManager.Get());
+                _onLog($"GetStreamUrlFromAshdi: received HTML, length={html.Length}");
+                
+                // Знаходимо JavaScript код з об'єктом player
+                var match = Regex.Match(html, @"var\s+player\s*=\s*new\s+Playerjs[\s\S]*?\(\s*({[\s\S]*?})\s*\)", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+                if (match.Success)
+                {
+                    _onLog($"GetStreamUrlFromAshdi: found player object");
+                    string playerJson = match.Groups[1].Value;
+                    _onLog($"GetStreamUrlFromAshdi: playerJson={playerJson}");
+                    // Знаходимо поле file
+                    var fileMatch = Regex.Match(playerJson, @"file\s*:\s*[""]?([^\s,""}]+)[""]?", RegexOptions.Multiline | RegexOptions.IgnoreCase);
+                    if (fileMatch.Success)
+                    {
+                        _onLog($"GetStreamUrlFromAshdi: found file URL: {fileMatch.Groups[1].Value}");
+                        return fileMatch.Groups[1].Value;
+                    }
+                    else
+                    {
+                        _onLog($"GetStreamUrlFromAshdi: file URL not found in playerJson");
+                    }
+                }
+                else
+                {
+                    _onLog($"GetStreamUrlFromAshdi: player object not found in HTML");
+                }
+            }
+            catch (Exception ex)
+            {
+                _onLog($"GetStreamUrlFromAshdi error: {ex.Message}");
+            }
+            return null;
         }
 
         public static TimeSpan cacheTime(int multiaccess, int home = 5, int mikrotik = 2, OnlinesSettings init = null, int rhub = -1)
