@@ -58,7 +58,7 @@ namespace Uaflix.Controllers
                 }
 
                 if (playResult.streams != null && playResult.streams.Count > 0)
-                    return Redirect(HostStreamProxy(init, playResult.streams.First().link));
+                    return Redirect(HostStreamProxy(init, accsArgs(playResult.streams.First().link)));
                 
                 return Content("Uaflix", "text/html; charset=utf-8");
             }
@@ -83,7 +83,7 @@ namespace Uaflix.Controllers
                 foreach(var ep in episodes)
                 {
                     string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&serial=1&s={s}&e={ep.episode}&play=true";
-                    movie_tpl.Append(ep.title, link);
+                    movie_tpl.Append(ep.title, accsArgs(link), method: "play");
                 }
                 return rjson ? Content(movie_tpl.ToJson(), "application/json; charset=utf-8") : Content(movie_tpl.ToHtml(), "text/html; charset=utf-8");
             }
@@ -91,7 +91,7 @@ namespace Uaflix.Controllers
             {
                 string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&play=true";
                 var tpl = new MovieTpl(title, original_title, 1);
-                tpl.Append(title, link);
+                tpl.Append(title, accsArgs(link), method: "play");
                 return rjson ? Content(tpl.ToJson(), "application/json; charset=utf-8") : Content(tpl.ToHtml(), "text/html; charset=utf-8");
             }
         }

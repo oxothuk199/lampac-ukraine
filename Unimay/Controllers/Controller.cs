@@ -102,14 +102,14 @@ namespace Unimay.Controllers
                     if (string.IsNullOrEmpty(masterUrl))
                         return OnError("no stream");
 
-                    return Redirect(HostStreamProxy(init, masterUrl, proxy: proxyManager.Get()));
+                    return Redirect(HostStreamProxy(init, accsArgs(masterUrl), proxy: proxyManager.Get()));
                 }
 
                 if (itemType == "Фільм")
                 {
                     var (movieTitle, movieLink) = invoke.GetMovieResult(host, releaseDetail, title, original_title);
                     var mtpl = new MovieTpl(title, original_title, 1);
-                    mtpl.Append(movieTitle, movieLink);
+                    mtpl.Append(movieTitle, accsArgs(movieLink), method: "play");
                     return ContentTo(rjson ? mtpl.ToJson() : mtpl.ToHtml());
                 }
                 else if (itemType == "Телесеріал")
@@ -129,7 +129,7 @@ namespace Unimay.Controllers
                         var mtpl = new MovieTpl(title, original_title, episodes.Count);
                         foreach (var (epTitle, epLink) in episodes)
                         {
-                            mtpl.Append(epTitle, epLink);
+                            mtpl.Append(epTitle, accsArgs(epLink), method: "play");
                         }
                         return ContentTo(rjson ? mtpl.ToJson() : mtpl.ToHtml());
                     }

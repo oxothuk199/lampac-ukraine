@@ -92,12 +92,12 @@ namespace AnimeON.Controllers
                         {
                             streamLink = $"{host}/animeon/play?url={HttpUtility.UrlEncode(streamLink)}";
                             streamquality.Append(streamLink, "hls");
-                            movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, streamLink, streamquality: streamquality);
+                            movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, accsArgs(streamLink), streamquality: streamquality);
                         }
                         else if (!string.IsNullOrEmpty(streamLink))
                         {
-                            streamquality.Append(HostStreamProxy(init, streamLink), "hls");
-                            movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, streamquality.Firts().link, streamquality: streamquality);
+                            streamquality.Append(HostStreamProxy(init, accsArgs(streamLink)), "hls");
+                            movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, accsArgs(streamquality.Firts().link), streamquality: streamquality);
                         }
                     }
 
@@ -133,12 +133,12 @@ namespace AnimeON.Controllers
                      {
                          streamLink = $"{host}/animeon/play?url={HttpUtility.UrlEncode(streamLink)}";
                          streamquality.Append(streamLink, "hls");
-                         tpl.Append(translationName, streamLink, streamquality: streamquality);
+                         tpl.Append(translationName, accsArgs(streamLink), streamquality: streamquality);
                      }
                      else if (!string.IsNullOrEmpty(streamLink))
                      {
-                         streamquality.Append(HostStreamProxy(init, streamLink), "hls");
-                         tpl.Append(translationName, streamquality.Firts().link, streamquality: streamquality);
+                         streamquality.Append(HostStreamProxy(init, accsArgs(streamLink)), "hls");
+                         tpl.Append(translationName, accsArgs(streamquality.Firts().link), streamquality: streamquality);
                      }
                  }
                  return rjson ? Content(tpl.ToJson(), "application/json; charset=utf-8") : Content(tpl.ToHtml(), "text/html; charset=utf-8");
@@ -239,7 +239,7 @@ namespace AnimeON.Controllers
             if (string.IsNullOrEmpty(streamLink))
                 return Content("Не вдалося отримати посилання на відео", "text/html; charset=utf-8");
 
-            return Redirect(HostStreamProxy(init, streamLink));
+            return Redirect(HostStreamProxy(init, accsArgs(streamLink)));
         }
     }
 }
