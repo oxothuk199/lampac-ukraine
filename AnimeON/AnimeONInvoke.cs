@@ -42,6 +42,7 @@ namespace AnimeON
                         return null;
 
                     string searchUrl = $"{_init.host}/api/anime/search?text={System.Web.HttpUtility.UrlEncode(query)}";
+                    _onLog($"AnimeON: using proxy {_proxyManager.CurrentProxyIp} for {searchUrl}");
                     string searchJson = await Http.Get(searchUrl, headers: headers, proxy: _proxyManager.Get());
                     if (string.IsNullOrEmpty(searchJson))
                         return null;
@@ -86,6 +87,7 @@ namespace AnimeON
         public async Task<List<FundubModel>> GetFundubs(int animeId)
         {
             string fundubsUrl = $"{_init.host}/api/player/fundubs/{animeId}";
+            _onLog($"AnimeON: using proxy {_proxyManager.CurrentProxyIp} for {fundubsUrl}");
             string fundubsJson = await Http.Get(fundubsUrl, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) }, proxy: _proxyManager.Get());
             if (string.IsNullOrEmpty(fundubsJson))
                 return null;
@@ -97,6 +99,7 @@ namespace AnimeON
         public async Task<EpisodeModel> GetEpisodes(int animeId, int playerId, int fundubId)
         {
             string episodesUrl = $"{_init.host}/api/player/episodes/{animeId}?take=100&skip=-1&playerId={playerId}&fundubId={fundubId}";
+            _onLog($"AnimeON: using proxy {_proxyManager.CurrentProxyIp} for {episodesUrl}");
             string episodesJson = await Http.Get(episodesUrl, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) }, proxy: _proxyManager.Get());
             if (string.IsNullOrEmpty(episodesJson))
                 return null;
@@ -115,6 +118,7 @@ namespace AnimeON
                     new HeadersModel("Referer", "https://animeon.club/")
                 };
 
+                _onLog($"AnimeON: using proxy {_proxyManager.CurrentProxyIp} for {requestUrl}");
                 string html = await Http.Get(requestUrl, headers: headers, proxy: _proxyManager.Get());
                 if (string.IsNullOrEmpty(html))
                     return null;

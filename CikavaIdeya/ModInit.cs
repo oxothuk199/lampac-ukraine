@@ -13,9 +13,16 @@ namespace CikavaIdeya
         /// </summary>
         public static void loaded(InitspaceModel initspace)
         {
-            CikavaIdeya = new OnlinesSettings("CikavaIdeya", "https://cikava-ideya.top", streamproxy: false)
+            CikavaIdeya = new OnlinesSettings("CikavaIdeya", "https://cikava-ideya.top", streamproxy: false, useproxy: false)
             {
-                displayname = "ЦікаваІдея"
+                displayname = "ЦікаваІдея",
+                proxy = new Shared.Models.Base.ProxySettings()
+                {
+                    useAuth = true,
+                    username = "a",
+                    password = "a",
+                    list = new string[] { "socks5://IP:PORT" }
+                }
             };
 
             // Виводити "уточнити пошук"

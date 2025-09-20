@@ -13,9 +13,16 @@ namespace Unimay
         /// </summary>
         public static void loaded(InitspaceModel initspace)
         {
-            Unimay = new OnlinesSettings("Unimay", "https://api.unimay.media/v1", streamproxy: false)
+            Unimay = new OnlinesSettings("Unimay", "https://api.unimay.media/v1", streamproxy: false, useproxy: false)
             {
-                displayname = "Unimay"
+                displayname = "Unimay",
+                proxy = new Shared.Models.Base.ProxySettings()
+                {
+                    useAuth = true,
+                    username = "a",
+                    password = "a",
+                    list = new string[] { "socks5://IP:PORT" }
+                }
             };
 
             // Виводити "уточнити пошук"
