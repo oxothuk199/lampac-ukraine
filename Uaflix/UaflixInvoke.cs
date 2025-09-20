@@ -1,114 +1,47 @@
-﻿using Shared.Engine;
 using System;
-using System.Threading.Tasks;
-using Microsoft.AspNetCore.Mvc;
 using System.Collections.Generic;
-using System.Web;
-using System.Linq;
-using HtmlAgilityPack;
+using System.Threading.Tasks;
 using Shared;
-using Shared.Models.Templates;
-using System.Text.RegularExpressions;
 using Shared.Models.Online.Settings;
 using Shared.Models;
+using System.Text.RegularExpressions;
+using HtmlAgilityPack;
+using Uaflix.Controllers;
+using Shared.Engine;
 using Uaflix.Models;
+using System.Linq;
+using Shared.Models.Templates;
 
-namespace Uaflix.Controllers
+namespace Uaflix
 {
-
-    public class Controller : BaseOnlineController
+    public class UaflixInvoke
     {
-        ProxyManager proxyManager;
+        private OnlinesSettings _init;
+        private HybridCache _hybridCache;
+        private Action<string> _onLog;
+        private ProxyManager _proxyManager;
 
-        public Controller()
+        public UaflixInvoke(OnlinesSettings init, HybridCache hybridCache, Action<string> onLog, ProxyManager proxyManager)
         {
-            proxyManager = new ProxyManager(ModInit.UaFlix);
-        }
-        
-        [HttpGet]
-        [Route("uaflix")]
-        async public Task<ActionResult> Index(long id, string imdb_id, long kinopoisk_id, string title, string original_title, string original_language, int year, string source, int serial, string account_email, string t, int s = -1, int e = -1, bool play = false, bool rjson = false)
-        {
-            var init = await loadKit(ModInit.UaFlix);
-            if (!init.enable)
-                return Forbid();
-
-            var invoke = new UaflixInvoke(init, hybridCache, OnLog, proxyManager);
-
-            var episodesInfo = await invoke.Search(imdb_id, kinopoisk_id, title, original_title, year, serial == 0);
-            if (episodesInfo == null)
-                return Content("Uaflix", "text/html; charset=utf-8");
-
-            if (play)
-            {
-                var episode = episodesInfo.FirstOrDefault(ep => ep.season == s && ep.episode == e);
-                if (serial == 0) // для фильма берем первый
-                    episode = episodesInfo.FirstOrDefault();
-
-                if (episode == null)
-                    return Content("Uaflix", "text/html; charset=utf-8");
-                
-                var playResult = await invoke.ParseEpisode(episode.url);
-                
-                if (!string.IsNullOrEmpty(playResult.ashdi_url))
-                {
-                    string ashdi_kp = Regex.Match(playResult.ashdi_url, "/serial/([0-9]+)").Groups[1].Value;
-                    if (!string.IsNullOrEmpty(ashdi_kp))
-                        return Redirect($"/ashdi?kinopoisk_id={ashdi_kp}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&s={s}&e={e}");
-                }
-
-                if (playResult.streams != null && playResult.streams.Count > 0)
-                    return Redirect(HostStreamProxy(init, playResult.streams.First().link));
-                
-                return Content("Uaflix", "text/html; charset=utf-8");
-            }
-
-            if (serial == 1)
-            {
-                if (s == -1) // Выбор сезона
-                {
-                    var seasons = episodesInfo.GroupBy(ep => ep.season).ToDictionary(k => k.Key, v => v.ToList());
-                    var season_tpl = new SeasonTpl(seasons.Count);
-                    foreach (var season in seasons.OrderBy(i => i.Key))
-                    {
-                        string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&serial=1&s={season.Key}";
-                        season_tpl.Append($"Сезон {season.Key}", link, $"{season.Key}");
-                    }
-                    return rjson ? Content(season_tpl.ToJson(), "application/json; charset=utf-8") : Content(season_tpl.ToHtml(), "text/html; charset=utf-8");
-                }
-                
-                // Выбор эпизода
-                var episodes = episodesInfo.Where(ep => ep.season == s).OrderBy(ep => ep.episode).ToList();
-                var movie_tpl = new MovieTpl(title, original_title, episodes.Count);
-                foreach(var ep in episodes)
-                {
-                    string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&serial=1&s={s}&e={ep.episode}&play=true";
-                    movie_tpl.Append(ep.title, link);
-                }
-                return rjson ? Content(movie_tpl.ToJson(), "application/json; charset=utf-8") : Content(movie_tpl.ToHtml(), "text/html; charset=utf-8");
-            }
-            else // Фильм
-            {
-                string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&play=true";
-                var tpl = new MovieTpl(title, original_title, 1);
-                tpl.Append(title, link);
-                return rjson ? Content(tpl.ToJson(), "application/json; charset=utf-8") : Content(tpl.ToHtml(), "text/html; charset=utf-8");
-            }
+            _init = init;
+            _hybridCache = hybridCache;
+            _onLog = onLog;
+            _proxyManager = proxyManager;
         }
 
-        async ValueTask<List<Uaflix.Models.EpisodeLinkInfo>> search(OnlinesSettings init, string imdb_id, long kinopoisk_id, string title, string original_title, int year, bool isfilm = false)
+        public async Task<List<Uaflix.Models.EpisodeLinkInfo>> Search(string imdb_id, long kinopoisk_id, string title, string original_title, int year, bool isfilm = false)
         {
             string memKey = $"UaFlix:search:{kinopoisk_id}:{imdb_id}";
-            if (hybridCache.TryGetValue(memKey, out List<Uaflix.Models.EpisodeLinkInfo> res))
+            if (_hybridCache.TryGetValue(memKey, out List<Uaflix.Models.EpisodeLinkInfo> res))
                 return res;
 
             try
             {
                 string filmTitle = !string.IsNullOrEmpty(title) ? title : original_title;
-                string searchUrl = $"{init.host}/index.php?do=search&subaction=search&story={HttpUtility.UrlEncode(filmTitle)}";
-                var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", init.host) };
+                string searchUrl = $"{_init.host}/index.php?do=search&subaction=search&story={System.Web.HttpUtility.UrlEncode(filmTitle)}";
+                var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) };
 
-                var searchHtml = await Http.Get(searchUrl, headers: headers);
+                var searchHtml = await Http.Get(searchUrl, headers: headers, proxy: _proxyManager.Get());
                 var doc = new HtmlDocument();
                 doc.LoadHtml(searchHtml);
 
@@ -133,16 +66,16 @@ namespace Uaflix.Controllers
                     filmUrl = filmNodes.FirstOrDefault()?.GetAttributeValue("href", "");
 
                 if (!filmUrl.StartsWith("http"))
-                    filmUrl = init.host + filmUrl;
+                    filmUrl = _init.host + filmUrl;
 
                 if (isfilm)
                 {
                     res = new List<Uaflix.Models.EpisodeLinkInfo>() { new Uaflix.Models.EpisodeLinkInfo() { url = filmUrl } };
-                    hybridCache.Set(memKey, res, cacheTime(20));
+                    _hybridCache.Set(memKey, res, cacheTime(20));
                     return res;
                 }
 
-                var filmHtml = await Http.Get(filmUrl, headers: headers);
+                var filmHtml = await Http.Get(filmUrl, headers: headers, proxy: _proxyManager.Get());
                 doc.LoadHtml(filmHtml);
 
                 res = new List<Uaflix.Models.EpisodeLinkInfo>();
@@ -153,7 +86,7 @@ namespace Uaflix.Controllers
                     {
                         string episodeUrl = episodeNode.GetAttributeValue("href", "");
                         if (!episodeUrl.StartsWith("http"))
-                            episodeUrl = init.host + episodeUrl;
+                            episodeUrl = _init.host + episodeUrl;
                         
                         var match = Regex.Match(episodeUrl, @"season-(\d+).*?episode-(\d+)");
                         if (match.Success)
@@ -179,23 +112,23 @@ namespace Uaflix.Controllers
                 }
 
                 if (res.Count > 0)
-                    hybridCache.Set(memKey, res, cacheTime(20));
+                    _hybridCache.Set(memKey, res, cacheTime(20));
 
                 return res;
             }
             catch (Exception ex)
             {
-                OnLog($"UaFlix search error: {ex.Message}");
+                _onLog($"UaFlix search error: {ex.Message}");
             }
             return null;
         }
 
-        async Task<Uaflix.Models.PlayResult> ParseEpisode(OnlinesSettings init, string url)
+        public async Task<Uaflix.Models.PlayResult> ParseEpisode(string url)
         {
             var result = new Uaflix.Models.PlayResult() { streams = new List<(string, string)>() };
             try
             {
-                string html = await Http.Get(url, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", init.host) });
+                string html = await Http.Get(url, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) }, proxy: _proxyManager.Get());
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
 
@@ -228,16 +161,15 @@ namespace Uaflix.Controllers
             }
             catch (Exception ex)
             {
-                OnLog($"ParseEpisode error: {ex.Message}");
+                _onLog($"ParseEpisode error: {ex.Message}");
             }
             return result;
         }
 
-        #region Parsers
         async Task<List<(string link, string quality)>> ParseAllZetvideoSources(string iframeUrl)
         {
             var result = new List<(string link, string quality)>();
-            var html = await Http.Get(iframeUrl, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://zetvideo.net/") });
+            var html = await Http.Get(iframeUrl, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://zetvideo.net/") }, proxy: _proxyManager.Get());
             if (string.IsNullOrEmpty(html)) return result;
 
             var doc = new HtmlDocument();
@@ -268,7 +200,7 @@ namespace Uaflix.Controllers
         async Task<List<(string link, string quality)>> ParseAllAshdiSources(string iframeUrl)
         {
             var result = new List<(string link, string quality)>();
-            var html = await Http.Get(iframeUrl, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://ashdi.vip/") });
+            var html = await Http.Get(iframeUrl, headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://ashdi.vip/") }, proxy: _proxyManager.Get());
              if (string.IsNullOrEmpty(html)) return result;
              
             var doc = new HtmlDocument();
@@ -287,7 +219,7 @@ namespace Uaflix.Controllers
 
         async Task<SubtitleTpl?> GetAshdiSubtitles(string id)
         {
-            var html = await Http.Get($"https://ashdi.vip/vod/{id}", headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://ashdi.vip/") });
+            var html = await Http.Get($"https://ashdi.vip/vod/{id}", headers: new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", "https://ashdi.vip/") }, proxy: _proxyManager.Get());
             string subtitle = new Regex("subtitle(\")?:\"([^\"]+)\"").Match(html).Groups[2].Value;
             if (!string.IsNullOrEmpty(subtitle))
             {
@@ -303,6 +235,16 @@ namespace Uaflix.Controllers
             }
             return null;
         }
-        #endregion
+        public static TimeSpan cacheTime(int multiaccess, int home = 5, int mikrotik = 2, OnlinesSettings init = null, int rhub = -1)
+        {
+            if (init != null && init.rhub && rhub != -1)
+                return TimeSpan.FromMinutes(rhub);
+
+            int ctime = AppInit.conf.mikrotik ? mikrotik : AppInit.conf.multiaccess ? init != null && init.cache_time > 0 ? init.cache_time : multiaccess : home;
+            if (ctime > multiaccess)
+                ctime = multiaccess;
+
+            return TimeSpan.FromMinutes(ctime);
+        }
     }
 }

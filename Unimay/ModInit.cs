@@ -1,5 +1,6 @@
 using Shared;
 using Shared.Models.Online.Settings;
+using Shared.Models.Module;
 
 namespace Unimay
 {
@@ -10,9 +11,9 @@ namespace Unimay
         /// <summary>
         /// модуль загружен
         /// </summary>
-        public static void loaded()
+        public static void loaded(InitspaceModel initspace)
         {
-            Unimay = new OnlinesSettings("Unimay", "https://api.unimay.media/v1", streamproxy: true)
+            Unimay = new OnlinesSettings("Unimay", "https://api.unimay.media/v1", streamproxy: false)
             {
                 displayname = "Unimay"
             };

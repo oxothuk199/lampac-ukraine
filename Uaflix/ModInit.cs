@@ -1,16 +1,17 @@
-﻿using Shared;  
-using Shared.Models.Online.Settings;  
-  
-namespace Uaflix  
-{  
-    public class ModInit  
-    {  
+﻿using Shared;
+using Shared.Models.Online.Settings;
+using Shared.Models.Module;
+
+namespace Uaflix
+{
+    public class ModInit
+    {
         public static OnlinesSettings UaFlix;
 
         /// <summary>
         /// модуль загружен
         /// </summary>
-        public static void loaded()
+        public static void loaded(InitspaceModel initspace)
         {
             UaFlix = new OnlinesSettings("Uaflix", "https://uafix.net", streamproxy: false)
             {
@@ -20,5 +21,5 @@ namespace Uaflix
             // Виводити "уточнити пошук"
             AppInit.conf.online.with_search.Add("uaflix");
         }
-    }  
+    }
 }

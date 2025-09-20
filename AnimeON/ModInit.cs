@@ -1,6 +1,7 @@
-﻿using Shared;  
-using Shared.Models.Online.Settings;  
-  
+﻿using Shared;
+using Shared.Models.Online.Settings;
+using Shared.Models.Module;
+
 namespace AnimeON
 {
     public class ModInit
@@ -10,7 +11,7 @@ namespace AnimeON
         /// <summary>
         /// модуль загружен
         /// </summary>
-        public static void loaded()
+        public static void loaded(InitspaceModel initspace)
         {
             AnimeON = new OnlinesSettings("AnimeON", "https://animeon.club", streamproxy: false)
             {
