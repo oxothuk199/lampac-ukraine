@@ -16,7 +16,7 @@ namespace CikavaIdeya
                 if (string.IsNullOrEmpty(url))
                     url = $"{host}/cikavaideya";
  
-                online.Add((init.displayname, url, "cikavaideya", init.displayindex > 0 ? init.displayindex : online.Count));
+                online.Add((init.displayname, url, "cikavaideya", init.displayindex));
             }
  
             return online;

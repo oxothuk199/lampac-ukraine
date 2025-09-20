@@ -16,6 +16,7 @@ namespace Uaflix
             UaFlix = new OnlinesSettings("Uaflix", "https://uafix.net", streamproxy: false, useproxy: false)
             {
                 displayname = "🇺🇦 UaFlix",
+                displayindex = 0,
                 proxy = new Shared.Models.Base.ProxySettings()
                 {
                     useAuth = true,

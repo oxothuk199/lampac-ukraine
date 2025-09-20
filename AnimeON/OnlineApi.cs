@@ -16,7 +16,7 @@ namespace AnimeON
                 if (string.IsNullOrEmpty(url))
                     url = $"{host}/animeon";
 
-                online.Add((init.displayname, url, "animeon", init.displayindex > 0 ? init.displayindex : online.Count));
+                online.Add((init.displayname, url, "animeon", init.displayindex));
             }
 
             return online;

@@ -16,7 +16,7 @@ namespace Uaflix
                 if (string.IsNullOrEmpty(url))
                     url = $"{host}/uaflix";
 
-                online.Add((init.displayname, url, "uaflix", init.displayindex > 0 ? init.displayindex : online.Count));
+                online.Add((init.displayname, url, "uaflix", init.displayindex));
             }
 
             return online;

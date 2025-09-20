@@ -16,7 +16,7 @@ namespace Unimay
                 if (string.IsNullOrEmpty(url))
                     url = $"{host}/unimay";
 
-                online.Add((init.displayname, url, "unimay", init.displayindex > 0 ? init.displayindex : online.Count));
+                online.Add((init.displayname, url, "unimay", init.displayindex));
             }
 
             return online;

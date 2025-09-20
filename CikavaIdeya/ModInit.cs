@@ -16,6 +16,7 @@ namespace CikavaIdeya
             CikavaIdeya = new OnlinesSettings("CikavaIdeya", "https://cikava-ideya.top", streamproxy: false, useproxy: false)
             {
                 displayname = "ЦікаваІдея",
+                displayindex = 0,
                 proxy = new Shared.Models.Base.ProxySettings()
                 {
                     useAuth = true,

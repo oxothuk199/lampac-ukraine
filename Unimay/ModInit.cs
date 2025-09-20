@@ -16,6 +16,7 @@ namespace Unimay
             Unimay = new OnlinesSettings("Unimay", "https://api.unimay.media/v1", streamproxy: false, useproxy: false)
             {
                 displayname = "Unimay",
+                displayindex = 0,
                 proxy = new Shared.Models.Base.ProxySettings()
                 {
                     useAuth = true,
