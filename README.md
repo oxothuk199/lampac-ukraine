@@ -5,7 +5,6 @@
 - [ ] Anitubeinua
 - [ ] BambooUA
 - [x] CikavaIdeya
-- [ ] Eneyida
 - [ ] KinoTron
 - [ ] KinoVezha
 - [ ] KlonTV
