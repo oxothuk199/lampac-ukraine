@@ -13,6 +13,8 @@ namespace Uaflix
         /// </summary>
         public static void loaded(InitspaceModel initspace)
         {
+            // streamproxy: false - замовчуванням вимкнено, але модуль сумісний з streamproxy=true
+            // Клоакінг посилань для серіалів дозволяє працювати незалежно від налаштування streamproxy
             UaFlix = new OnlinesSettings("Uaflix", "https://uafix.net", streamproxy: false, useproxy: false)
             {
                 displayname = "🇺🇦 UaFlix",
