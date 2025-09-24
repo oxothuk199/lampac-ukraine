@@ -11,6 +11,7 @@ using Shared.Engine;
 using Uaflix.Models;
 using System.Linq;
 using Shared.Models.Templates;
+using System.Net;
 
 namespace Uaflix
 {
@@ -62,59 +63,24 @@ namespace Uaflix
                     }
                 }
 
-                if (filmUrl == null)
+                if (string.IsNullOrEmpty(filmUrl))
                     filmUrl = filmNodes.FirstOrDefault()?.GetAttributeValue("href", "");
+
+                if (string.IsNullOrEmpty(filmUrl))
+                    return null;
 
                 if (!filmUrl.StartsWith("http"))
                     filmUrl = _init.host + filmUrl;
 
                 if (isfilm)
                 {
-                    res = new List<Uaflix.Models.EpisodeLinkInfo>() { new Uaflix.Models.EpisodeLinkInfo() { url = filmUrl } };
+                    res = new List<Uaflix.Models.EpisodeLinkInfo>() { new Uaflix.Models.EpisodeLinkInfo() { url = filmUrl, title = filmTitle } };
                     _hybridCache.Set(memKey, res, cacheTime(20));
                     return res;
                 }
 
-                var filmHtml = await Http.Get(filmUrl, headers: headers, proxy: _proxyManager.Get());
-                doc.LoadHtml(filmHtml);
-
-                res = new List<Uaflix.Models.EpisodeLinkInfo>();
-                var episodeNodes = doc.DocumentNode.SelectNodes("//div[contains(@class, 'frels2')]//a[contains(@class, 'vi-img')]");
-                if (episodeNodes != null)
-                {
-                    foreach (var episodeNode in episodeNodes.Reverse().ToList())
-                    {
-                        string episodeUrl = episodeNode.GetAttributeValue("href", "");
-                        if (!episodeUrl.StartsWith("http"))
-                            episodeUrl = _init.host + episodeUrl;
-                        
-                        var match = Regex.Match(episodeUrl, @"season-(\d+).*?episode-(\d+)");
-                        if (match.Success)
-                        {
-                            res.Add(new Uaflix.Models.EpisodeLinkInfo
-                            {
-                                url = episodeUrl,
-                                title = episodeNode.SelectSingleNode(".//div[@class='vi-rate']")?.InnerText.Trim() ?? $"Епізод {match.Groups[2].Value}",
-                                season = int.Parse(match.Groups[1].Value),
-                                episode = int.Parse(match.Groups[2].Value)
-                            });
-                        }
-                    }
-                }
-                
-                if (res.Count == 0) 
-                {
-                     var iframe = doc.DocumentNode.SelectSingleNode("//div[contains(@class, 'video-box')]//iframe[contains(@src, 'ashdi.vip/serial/')]");
-                     if (iframe != null)
-                     {
-                         res.Add(new Uaflix.Models.EpisodeLinkInfo() { url = filmUrl, season = 1, episode = 1 });
-                     }
-                }
-
-                if (res.Count > 0)
-                    _hybridCache.Set(memKey, res, cacheTime(20));
-
-                return res;
+                // Для серіалів використовується GetPaginationInfo
+                return null;
             }
             catch (Exception ex)
             {
@@ -122,7 +88,214 @@ namespace Uaflix
             }
             return null;
         }
+        
+        public async Task<FilmInfo> GetFilmInfo(string filmUrl)
+        {
+            string memKey = $"UaFlix:filminfo:{filmUrl}";
+            if (_hybridCache.TryGetValue(memKey, out FilmInfo res))
+                return res;
 
+            try
+            {
+                var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) };
+                var filmHtml = await Http.Get(filmUrl, headers: headers, proxy: _proxyManager.Get());
+                var doc = new HtmlDocument();
+                doc.LoadHtml(filmHtml);
+                
+                var result = new FilmInfo
+                {
+                    Url = filmUrl
+                };
+                
+                var titleNode = doc.DocumentNode.SelectSingleNode("//h1[@class='h1-title']");
+                if (titleNode != null)
+                {
+                    result.Title = titleNode.InnerText.Trim();
+                }
+                
+                var metaDuration = doc.DocumentNode.SelectSingleNode("//meta[@property='og:video:duration']");
+                if (metaDuration != null)
+                {
+                    string durationStr = metaDuration.GetAttributeValue("content", "");
+                    if (int.TryParse(durationStr, out int duration))
+                    {
+                        result.Duration = duration;
+                    }
+                }
+                
+                var metaActors = doc.DocumentNode.SelectSingleNode("//meta[@property='og:video:actor']");
+                if (metaActors != null)
+                {
+                    string actorsStr = metaActors.GetAttributeValue("content", "");
+                    result.Actors = actorsStr.Split(new char[] { ',' }, StringSplitOptions.RemoveEmptyEntries)
+                                          .Select(a => a.Trim())
+                                          .ToList();
+                }
+                
+                var metaDirector = doc.DocumentNode.SelectSingleNode("//meta[@property='og:video:director']");
+                if (metaDirector != null)
+                {
+                    result.Director = metaDirector.GetAttributeValue("content", "");
+                }
+                
+                var descNode = doc.DocumentNode.SelectSingleNode("//div[@id='main-descr']//div[@itemprop='description']");
+                if (descNode != null)
+                {
+                    result.Description = descNode.InnerText.Trim();
+                }
+                
+                var posterNode = doc.DocumentNode.SelectSingleNode("//img[@itemprop='image']");
+                if (posterNode != null)
+                {
+                    result.PosterUrl = posterNode.GetAttributeValue("src", "");
+                    if (!result.PosterUrl.StartsWith("http") && !string.IsNullOrEmpty(result.PosterUrl))
+                    {
+                        result.PosterUrl = _init.host + result.PosterUrl;
+                    }
+                }
+                
+                _hybridCache.Set(memKey, result, cacheTime(60));
+                return result;
+            }
+            catch (Exception ex)
+            {
+                _onLog($"UaFlix GetFilmInfo error: {ex.Message}");
+            }
+            return null;
+        }
+
+        public async Task<PaginationInfo> GetPaginationInfo(string imdb_id, long kinopoisk_id, string title, string original_title, int year)
+        {
+            string memKey = $"UaFlix:pagination:{kinopoisk_id}:{imdb_id}";
+            if (_hybridCache.TryGetValue(memKey, out PaginationInfo res))
+                return res;
+
+            try
+            {
+                string filmTitle = !string.IsNullOrEmpty(title) ? title : original_title;
+                string searchUrl = $"{_init.host}/index.php?do=search&subaction=search&story={System.Web.HttpUtility.UrlEncode(filmTitle)}";
+                var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) };
+
+                var searchHtml = await Http.Get(searchUrl, headers: headers, proxy: _proxyManager.Get());
+                var searchDoc = new HtmlDocument();
+                searchDoc.LoadHtml(searchHtml);
+
+                var filmNodes = searchDoc.DocumentNode.SelectNodes("//a[contains(@class, 'sres-wrap')]");
+                if (filmNodes == null) return null;
+
+                string filmUrl = null;
+                foreach (var filmNode in filmNodes)
+                {
+                    var h2Node = filmNode.SelectSingleNode(".//h2");
+                    if (h2Node == null || !h2Node.InnerText.Trim().ToLower().Contains(filmTitle.ToLower())) continue;
+                    
+                    var descNode = filmNode.SelectSingleNode(".//div[contains(@class, 'sres-desc')]");
+                    if (year > 0 && (descNode?.InnerText ?? "").Contains(year.ToString()))
+                    {
+                        filmUrl = filmNode.GetAttributeValue("href", "");
+                        break;
+                    }
+                }
+
+                if (string.IsNullOrEmpty(filmUrl))
+                    filmUrl = filmNodes.FirstOrDefault()?.GetAttributeValue("href", "");
+
+                if (string.IsNullOrEmpty(filmUrl))
+                    return null;
+
+                if (!filmUrl.StartsWith("http"))
+                    filmUrl = _init.host + filmUrl;
+
+                var filmHtml = await Http.Get(filmUrl, headers: headers, proxy: _proxyManager.Get());
+                var filmDoc = new HtmlDocument();
+                filmDoc.LoadHtml(filmHtml);
+                
+                var paginationInfo = new PaginationInfo
+                {
+                    SerialUrl = filmUrl
+                };
+
+                var allEpisodes = new List<EpisodeLinkInfo>();
+                var seasonUrls = new HashSet<string>();
+
+                var seasonNodes = filmDoc.DocumentNode.SelectNodes("//div[contains(@class, 'sez-wr')]//a");
+                if (seasonNodes == null)
+                    seasonNodes = filmDoc.DocumentNode.SelectNodes("//div[contains(@class, 'fss-box')]//a");
+                if (seasonNodes != null && seasonNodes.Count > 0)
+                {
+                    foreach (var node in seasonNodes)
+                    {
+                        string pageUrl = node.GetAttributeValue("href", null);
+                        if (!string.IsNullOrEmpty(pageUrl))
+                        {
+                            if (!pageUrl.StartsWith("http"))
+                                pageUrl = _init.host + pageUrl;
+                            
+                            seasonUrls.Add(pageUrl);
+                        }
+                    }
+                }
+                else
+                {
+                    seasonUrls.Add(filmUrl);
+                }
+
+                var seasonTasks = seasonUrls.Select(url => Http.Get(url, headers: headers, proxy: _proxyManager.Get()).AsTask());
+                var seasonPagesHtml = await Task.WhenAll(seasonTasks);
+
+                foreach (var html in seasonPagesHtml)
+                {
+                    var pageDoc = new HtmlDocument();
+                    pageDoc.LoadHtml(html);
+
+                    var episodeNodes = pageDoc.DocumentNode.SelectNodes("//div[contains(@class, 'frels')]//a[contains(@class, 'vi-img')]");
+                    if (episodeNodes != null)
+                    {
+                        foreach (var episodeNode in episodeNodes)
+                        {
+                            string episodeUrl = episodeNode.GetAttributeValue("href", "");
+                            if (!episodeUrl.StartsWith("http"))
+                                episodeUrl = _init.host + episodeUrl;
+
+                            var match = Regex.Match(episodeUrl, @"season-(\d+).*?episode-(\d+)");
+                            if (match.Success)
+                            {
+                                allEpisodes.Add(new EpisodeLinkInfo
+                                {
+                                    url = episodeUrl,
+                                    title = episodeNode.SelectSingleNode(".//div[@class='vi-rate']")?.InnerText.Trim() ?? $"Епізод {match.Groups[2].Value}",
+                                    season = int.Parse(match.Groups[1].Value),
+                                    episode = int.Parse(match.Groups[2].Value)
+                                });
+                            }
+                        }
+                    }
+                }
+
+                paginationInfo.Episodes = allEpisodes.OrderBy(e => e.season).ThenBy(e => e.episode).ToList();
+
+                if (paginationInfo.Episodes.Any())
+                {
+                    var uniqueSeasons = paginationInfo.Episodes.Select(e => e.season).Distinct().OrderBy(se => se);
+                    foreach (var season in uniqueSeasons)
+                    {
+                        paginationInfo.Seasons[season] = 1;
+                    }
+                }
+
+                if (paginationInfo.Episodes.Count > 0)
+                {
+                    _hybridCache.Set(memKey, paginationInfo, cacheTime(20));
+                    return paginationInfo;
+                }
+            }
+            catch (Exception ex)
+            {
+                _onLog($"UaFlix GetPaginationInfo error: {ex.Message}");
+            }
+            return null;
+        }
+        
         public async Task<Uaflix.Models.PlayResult> ParseEpisode(string url)
         {
             var result = new Uaflix.Models.PlayResult() { streams = new List<(string, string)>() };
@@ -163,6 +336,7 @@ namespace Uaflix
             {
                 _onLog($"ParseEpisode error: {ex.Message}");
             }
+            _onLog($"ParseEpisode result: streams.count={result.streams.Count}, ashdi_url={result.ashdi_url}");
             return result;
         }
 
