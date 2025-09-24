@@ -28,7 +28,7 @@ namespace Uaflix.Controllers
         
         [HttpGet]
         [Route("uaflix")]
-        async public Task<ActionResult> Index(long id, string imdb_id, long kinopoisk_id, string title, string original_title, string original_language, int year, string source, int serial, string account_email, string t, int s = -1, int e = -1, bool play = false, bool rjson = false)
+        async public Task<ActionResult> Index(long id, string imdb_id, long kinopoisk_id, string title, string original_title, string original_language, int year, string source, int serial, string account_email, string t, int s = -1, int e = -1, bool play = false, bool rjson = false, string href = null)
         {
             var init = await loadKit(ModInit.UaFlix);
             if (await IsBadInitialization(init))
@@ -45,9 +45,31 @@ namespace Uaflix.Controllers
                 return Content("Uaflix", "text/html; charset=utf-8");
             }
 
+            string filmUrl = href;
+
+            if (string.IsNullOrEmpty(filmUrl))
+            {
+                var searchResults = await invoke.Search(imdb_id, kinopoisk_id, title, original_title, year, title);
+                if (searchResults == null || searchResults.Count == 0)
+                    return Content("Uaflix", "text/html; charset=utf-8");
+
+                if (searchResults.Count > 1)
+                {
+                    var similar_tpl = new SimilarTpl(searchResults.Count);
+                    foreach (var res in searchResults)
+                    {
+                        string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&serial={serial}&href={HttpUtility.UrlEncode(res.Url)}";
+                        similar_tpl.Append(res.Title, res.Year.ToString(), string.Empty, link, res.PosterUrl);
+                    }
+                    return rjson ? Content(similar_tpl.ToJson(), "application/json; charset=utf-8") : Content(similar_tpl.ToHtml(), "text/html; charset=utf-8");
+                }
+
+                filmUrl = searchResults[0].Url;
+            }
+
             if (serial == 1)
             {
-                var paginationInfo = await invoke.GetPaginationInfo(imdb_id, kinopoisk_id, title, original_title, year);
+                var paginationInfo = await invoke.GetPaginationInfo(filmUrl);
                 if (paginationInfo == null || paginationInfo.Episodes == null)
                     return Content("Uaflix", "text/html; charset=utf-8");
 
@@ -58,7 +80,7 @@ namespace Uaflix.Controllers
                     
                     foreach (var season in seasons)
                     {
-                        string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&serial=1&s={season}";
+                        string link = $"{host}/uaflix?imdb_id={imdb_id}&kinopoisk_id={kinopoisk_id}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}&year={year}&serial=1&s={season}&href={HttpUtility.UrlEncode(filmUrl)}";
                         season_tpl.Append($"Сезон {season}", link, $"{season}");
                     }
                     return rjson ? Content(season_tpl.ToJson(), "application/json; charset=utf-8") : Content(season_tpl.ToHtml(), "text/html; charset=utf-8");
@@ -77,13 +99,9 @@ namespace Uaflix.Controllers
             }
             else // Фильм
             {
-                var episodesInfo = await invoke.Search(imdb_id, kinopoisk_id, title, original_title, year, true);
-                if (episodesInfo == null || episodesInfo.Count == 0)
-                    return Content("Uaflix", "text/html; charset=utf-8");
-                
-                string link = $"{host}/uaflix?t={HttpUtility.UrlEncode(episodesInfo[0].url)}&play=true";
+                string link = $"{host}/uaflix?t={HttpUtility.UrlEncode(filmUrl)}&play=true";
                 var tpl = new MovieTpl(title, original_title, 1);
-                tpl.Append(episodesInfo[0].title, accsArgs(link), method: "play");
+                tpl.Append(title, accsArgs(link), method: "play");
                 return rjson ? Content(tpl.ToJson(), "application/json; charset=utf-8") : Content(tpl.ToHtml(), "text/html; charset=utf-8");
             }
         }

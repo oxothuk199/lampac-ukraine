@@ -30,15 +30,15 @@ namespace Uaflix
             _proxyManager = proxyManager;
         }
 
-        public async Task<List<Uaflix.Models.EpisodeLinkInfo>> Search(string imdb_id, long kinopoisk_id, string title, string original_title, int year, bool isfilm = false)
+        public async Task<List<SearchResult>> Search(string imdb_id, long kinopoisk_id, string title, string original_title, int year, string search_query)
         {
-            string memKey = $"UaFlix:search:{kinopoisk_id}:{imdb_id}";
-            if (_hybridCache.TryGetValue(memKey, out List<Uaflix.Models.EpisodeLinkInfo> res))
+            string memKey = $"UaFlix:search:{kinopoisk_id}:{imdb_id}:{search_query}";
+            if (_hybridCache.TryGetValue(memKey, out List<SearchResult> res))
                 return res;
 
             try
             {
-                string filmTitle = !string.IsNullOrEmpty(title) ? title : original_title;
+                string filmTitle = !string.IsNullOrEmpty(search_query) ? search_query : (!string.IsNullOrEmpty(title) ? title : original_title);
                 string searchUrl = $"{_init.host}/index.php?do=search&subaction=search&story={System.Web.HttpUtility.UrlEncode(filmTitle)}";
                 var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) };
 
@@ -49,38 +49,40 @@ namespace Uaflix
                 var filmNodes = doc.DocumentNode.SelectNodes("//a[contains(@class, 'sres-wrap')]");
                 if (filmNodes == null) return null;
 
-                string filmUrl = null;
+                res = new List<SearchResult>();
                 foreach (var filmNode in filmNodes)
                 {
                     var h2Node = filmNode.SelectSingleNode(".//h2");
-                    if (h2Node == null || !h2Node.InnerText.Trim().ToLower().Contains(filmTitle.ToLower())) continue;
-                    
+                    if (h2Node == null) continue;
+
+                    string filmUrl = filmNode.GetAttributeValue("href", "");
+                    if (string.IsNullOrEmpty(filmUrl)) continue;
+
+                    if (!filmUrl.StartsWith("http"))
+                        filmUrl = _init.host + filmUrl;
+
                     var descNode = filmNode.SelectSingleNode(".//div[contains(@class, 'sres-desc')]");
-                    if (year > 0 && (descNode?.InnerText ?? "").Contains(year.ToString()))
+                    int.TryParse(Regex.Match(descNode?.InnerText ?? "", @"\d{4}").Value, out int filmYear);
+
+                    var posterNode = filmNode.SelectSingleNode(".//img");
+                    string posterUrl = posterNode?.GetAttributeValue("src", "");
+                    if (!string.IsNullOrEmpty(posterUrl) && !posterUrl.StartsWith("http"))
+                        posterUrl = _init.host + posterUrl;
+
+                    res.Add(new SearchResult
                     {
-                        filmUrl = filmNode.GetAttributeValue("href", "");
-                        break;
-                    }
+                        Title = h2Node.InnerText.Trim(),
+                        Url = filmUrl,
+                        Year = filmYear,
+                        PosterUrl = posterUrl
+                    });
                 }
 
-                if (string.IsNullOrEmpty(filmUrl))
-                    filmUrl = filmNodes.FirstOrDefault()?.GetAttributeValue("href", "");
-
-                if (string.IsNullOrEmpty(filmUrl))
-                    return null;
-
-                if (!filmUrl.StartsWith("http"))
-                    filmUrl = _init.host + filmUrl;
-
-                if (isfilm)
+                if (res.Count > 0)
                 {
-                    res = new List<Uaflix.Models.EpisodeLinkInfo>() { new Uaflix.Models.EpisodeLinkInfo() { url = filmUrl, title = filmTitle } };
                     _hybridCache.Set(memKey, res, cacheTime(20));
                     return res;
                 }
-
-                // Для серіалів використовується GetPaginationInfo
-                return null;
             }
             catch (Exception ex)
             {
@@ -164,48 +166,15 @@ namespace Uaflix
             return null;
         }
 
-        public async Task<PaginationInfo> GetPaginationInfo(string imdb_id, long kinopoisk_id, string title, string original_title, int year)
+        public async Task<PaginationInfo> GetPaginationInfo(string filmUrl)
         {
-            string memKey = $"UaFlix:pagination:{kinopoisk_id}:{imdb_id}";
+            string memKey = $"UaFlix:pagination:{filmUrl}";
             if (_hybridCache.TryGetValue(memKey, out PaginationInfo res))
                 return res;
 
             try
             {
-                string filmTitle = !string.IsNullOrEmpty(title) ? title : original_title;
-                string searchUrl = $"{_init.host}/index.php?do=search&subaction=search&story={System.Web.HttpUtility.UrlEncode(filmTitle)}";
                 var headers = new List<HeadersModel>() { new HeadersModel("User-Agent", "Mozilla/5.0"), new HeadersModel("Referer", _init.host) };
-
-                var searchHtml = await Http.Get(searchUrl, headers: headers, proxy: _proxyManager.Get());
-                var searchDoc = new HtmlDocument();
-                searchDoc.LoadHtml(searchHtml);
-
-                var filmNodes = searchDoc.DocumentNode.SelectNodes("//a[contains(@class, 'sres-wrap')]");
-                if (filmNodes == null) return null;
-
-                string filmUrl = null;
-                foreach (var filmNode in filmNodes)
-                {
-                    var h2Node = filmNode.SelectSingleNode(".//h2");
-                    if (h2Node == null || !h2Node.InnerText.Trim().ToLower().Contains(filmTitle.ToLower())) continue;
-                    
-                    var descNode = filmNode.SelectSingleNode(".//div[contains(@class, 'sres-desc')]");
-                    if (year > 0 && (descNode?.InnerText ?? "").Contains(year.ToString()))
-                    {
-                        filmUrl = filmNode.GetAttributeValue("href", "");
-                        break;
-                    }
-                }
-
-                if (string.IsNullOrEmpty(filmUrl))
-                    filmUrl = filmNodes.FirstOrDefault()?.GetAttributeValue("href", "");
-
-                if (string.IsNullOrEmpty(filmUrl))
-                    return null;
-
-                if (!filmUrl.StartsWith("http"))
-                    filmUrl = _init.host + filmUrl;
-
                 var filmHtml = await Http.Get(filmUrl, headers: headers, proxy: _proxyManager.Get());
                 var filmDoc = new HtmlDocument();
                 filmDoc.LoadHtml(filmHtml);
