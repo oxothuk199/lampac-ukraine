@@ -274,6 +274,17 @@ namespace Uaflix
                 var doc = new HtmlDocument();
                 doc.LoadHtml(html);
 
+                var videoNode = doc.DocumentNode.SelectSingleNode("//video");
+                if (videoNode != null)
+                {
+                    string videoUrl = videoNode.GetAttributeValue("src", "");
+                    if (!string.IsNullOrEmpty(videoUrl))
+                    {
+                        result.streams.Add((videoUrl, "1080p"));
+                        return result;
+                    }
+                }
+
                 var iframe = doc.DocumentNode.SelectSingleNode("//div[contains(@class, 'video-box')]//iframe");
                 if (iframe != null)
                 {
