@@ -33,14 +33,16 @@ namespace AnimeON.Controllers
             if (!init.enable)
                 return Forbid();
 
-            var seasons = await search(init, imdb_id, kinopoisk_id, title, original_title, year);
+            var invoke = new AnimeONInvoke(init, hybridCache, OnLog, proxyManager);
+
+            var seasons = await invoke.Search(imdb_id, kinopoisk_id, title, original_title, year);
             if (seasons == null || seasons.Count == 0)
                 return Content("AnimeON", "text/html; charset=utf-8");
 
             var allOptions = new List<(SearchModel season, FundubModel fundub, Player player)>();
             foreach (var season in seasons)
             {
-                var fundubs = await GetFundubs(init, season.Id);
+                var fundubs = await invoke.GetFundubs(season.Id);
                 if (fundubs != null)
                 {
                     foreach (var fundub in fundubs)
@@ -76,7 +78,7 @@ namespace AnimeON.Controllers
                         return Content("AnimeON", "text/html; charset=utf-8");
 
                     var selected = allOptions[s];
-                    var episodesData = await GetEpisodes(init, selected.season.Id, selected.player.Id, selected.fundub.Fundub.Id);
+                    var episodesData = await invoke.GetEpisodes(selected.season.Id, selected.player.Id, selected.fundub.Fundub.Id);
                     if (episodesData == null || episodesData.Episodes == null)
                         return Content("AnimeON", "text/html; charset=utf-8");
 
@@ -85,9 +87,31 @@ namespace AnimeON.Controllers
                     {
                         var streamquality = new StreamQualityTpl();
                         string streamLink = !string.IsNullOrEmpty(ep.Hls) ? ep.Hls : ep.VideoUrl;
-                        streamquality.Append(HostStreamProxy(init, streamLink), "hls");
-                        movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, streamquality.Firts().link, streamquality: streamquality);
+
+                        if (selected.player.Name.ToLower() == "moon" && !string.IsNullOrEmpty(streamLink) && streamLink.Contains("moonanime.art/iframe/"))
+                        {
+                            streamLink = $"{host}/animeon/play?url={HttpUtility.UrlEncode(streamLink)}";
+                            streamquality.Append(streamLink, "hls");
+                            movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, accsArgs(streamLink), streamquality: streamquality);
+                        }
+                        else if (!string.IsNullOrEmpty(streamLink))
+                        {
+                            streamquality.Append(HostStreamProxy(init, accsArgs(streamLink)), "hls");
+                            movie_tpl.Append(string.IsNullOrEmpty(ep.Name) ? $"Серія {ep.EpisodeNum}" : ep.Name, accsArgs(streamquality.Firts().link), streamquality: streamquality);
+                        }
                     }
+
+                    if (!string.IsNullOrEmpty(episodesData.AnotherPlayer) && episodesData.AnotherPlayer.Contains("ashdi.vip"))
+                    {
+                        var match = Regex.Match(episodesData.AnotherPlayer, "/serial/([0-9]+)");
+                        if (match.Success)
+                        {
+                            string ashdi_kp = match.Groups[1].Value;
+                            string ashdi_link = $"/ashdi?kinopoisk_id={ashdi_kp}&title={HttpUtility.UrlEncode(title)}&original_title={HttpUtility.UrlEncode(original_title)}";
+                            movie_tpl.Append("Плеєр Ashdi", ashdi_link);
+                        }
+                    }
+
                     return rjson ? Content(movie_tpl.ToJson(), "application/json; charset=utf-8") : Content(movie_tpl.ToHtml(), "text/html; charset=utf-8");
                 }
             }
@@ -96,16 +120,26 @@ namespace AnimeON.Controllers
                  var tpl = new MovieTpl(title, original_title, allOptions.Count);
                  foreach (var item in allOptions)
                  {
-                     var episodesData = await GetEpisodes(init, item.season.Id, item.player.Id, item.fundub.Fundub.Id);
+                     var episodesData = await invoke.GetEpisodes(item.season.Id, item.player.Id, item.fundub.Fundub.Id);
                      if (episodesData == null || episodesData.Episodes == null || episodesData.Episodes.Count == 0)
                          continue;
-                    
+                     
                      string translationName = $"[{item.player.Name}] {item.fundub.Fundub.Name}";
                      var streamquality = new StreamQualityTpl();
-                     var firstEp = episodesData.Episodes.First();
+                     var firstEp = episodesData.Episodes.FirstOrDefault();
                      string streamLink = !string.IsNullOrEmpty(firstEp.Hls) ? firstEp.Hls : firstEp.VideoUrl;
-                     streamquality.Append(HostStreamProxy(init, streamLink), "hls");
-                     tpl.Append(translationName, streamquality.Firts().link, streamquality: streamquality);
+
+                     if (item.player.Name.ToLower() == "moon" && !string.IsNullOrEmpty(streamLink) && streamLink.Contains("moonanime.art/iframe/"))
+                     {
+                         streamLink = $"{host}/animeon/play?url={HttpUtility.UrlEncode(streamLink)}";
+                         streamquality.Append(streamLink, "hls");
+                         tpl.Append(translationName, accsArgs(streamLink), streamquality: streamquality);
+                     }
+                     else if (!string.IsNullOrEmpty(streamLink))
+                     {
+                         streamquality.Append(HostStreamProxy(init, accsArgs(streamLink)), "hls");
+                         tpl.Append(translationName, accsArgs(streamquality.Firts().link), streamquality: streamquality);
+                     }
                  }
                  return rjson ? Content(tpl.ToJson(), "application/json; charset=utf-8") : Content(tpl.ToHtml(), "text/html; charset=utf-8");
             }
@@ -187,6 +221,25 @@ namespace AnimeON.Controllers
             }
             
             return null;
+        }
+
+        [HttpGet("animeon/play")]
+        public async Task<ActionResult> Play(string url)
+        {
+            if (string.IsNullOrEmpty(url))
+                return OnError("url is empty");
+
+            var init = await loadKit(ModInit.AnimeON);
+            if (!init.enable)
+                return Forbid();
+
+            var invoke = new AnimeONInvoke(init, hybridCache, OnLog, proxyManager);
+            string streamLink = await invoke.ParseMoonAnimePage(url);
+
+            if (string.IsNullOrEmpty(streamLink))
+                return Content("Не вдалося отримати посилання на відео", "text/html; charset=utf-8");
+
+            return Redirect(HostStreamProxy(init, accsArgs(streamLink)));
         }
     }
 }

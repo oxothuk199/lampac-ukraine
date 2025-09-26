@@ -9,7 +9,9 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Lampac.csproj" />
+    <Reference Include="Shared">
+      <HintPath>..\..\Shared.dll</HintPath>
+    </Reference>
   </ItemGroup>
 
 </Project>

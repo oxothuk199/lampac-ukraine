@@ -70,6 +70,9 @@ namespace AnimeON.Models
     {
         [JsonPropertyName("episodes")]
         public List<Episode> Episodes { get; set; }
+
+        [JsonPropertyName("anotherPlayer")]
+        public string AnotherPlayer { get; set; }
     }
 
     public class Episode
